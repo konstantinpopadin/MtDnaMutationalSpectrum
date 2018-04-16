@@ -12,7 +12,7 @@ rm(list = ls(all.names = TRUE))
 # For PCA analysis:
 library("ade4")
 library("FactoMineR")
-# library("logisticPCA")
+# library("logisticPCA")  # May be used to explore presence/absence some type of subst. I've add it in case of our zeros-completion of NA.
 # For data-wrangling:
 library("tidyverse")
 library("broom")
@@ -177,12 +177,13 @@ p_subs <- ggplot(sMUT) + geom_histogram(aes(Fraction)) + facet_wrap("Subs", ncol
 p_subs2 <- ggplot(sMUT) + geom_freqpoly(aes(Fraction, colour = Subs, alpha = .3))
 
 ###### create matrix for PCA:
-MATRIX <- sMUT %>% spread(Subs, Fraction)
-names(MATRIX) = c('Species', 
-                  'AC', 'AG', 'AT', 
-                  'CA', 'CG', 'CT', 
-                  'GA', 'GC', 'GT', 
-                  'TA', 'TG', 'TC')
+TABLE <- 
+    sMUT %>% 
+    spread(Subs, Fraction) %>% 
+    rename("AC" = "A_C", "AG" = "A_G", "AT" = "A_T", 
+           "CA" = "C_A", "CG" = "C_G", "CT" = "C_T", 
+           "GA" = "G_A", "GC" = "G_C", "GT" = "G_T", 
+           "TA" = "T_A", "TC" = "T_C", "TG" = "T_G")
 
 ### scale 12 substitutions. 
 # If I don't scale PCA1 strongly depends on GA - probably this is just because GA is very common and thus fluctuations are very important by absolute values - not by relative...
@@ -196,8 +197,8 @@ names(MATRIX) = c('Species',
 #  summary(as.numeric(MATRIX[, i]))
 #}
 
-###### PCA 
-MATRIX %>% as.data.frame() %>% column_to_rownames("Species") -> mtx
+
+TABLE %>% as.data.frame() %>% column_to_rownames("Species") -> mtx
 # for (i in seq_along(mtx)) {
 #     hist(mtx[, i], main = colnames(mtx)[i], breaks = 50)
 # }
@@ -218,54 +219,128 @@ chisq <- chisq.test(mtx)
 tidy(chisq)  # not significant
 #   statistic p.value parameter                     method
 # 1  356.7633       1      5522 Pearson's Chi-squared test
-head(round(chisq$observed, 2))
-head(round(chisq$expected, 2))
-head(round(chisq$residuals, 2))
-# again it's large but visualisation may be done by:
-# corrplot(chisq$residuals, is.corr = FALSE)
+
 
 # Contribution in percentage (%) of cell to Chi-square score:
-contrib <- (100 * chisq$residuals)^2 / chisq$statistic
+contrib <- (100 * chisq$residuals^2) / chisq$statistic
 for (i in seq_along(contrib)) {
     hist(contrib[, i], main = colnames(contrib)[i], breaks = 50)
 }  # here we see group of strangers on GA hist with large conribution
 corrplot(contrib, is.corr = FALSE)
-bigGA <- rownames(contrib[contrib[, "GA"] > 15, ])
-mosaicplot(mtx[bigGA, ], shade = TRUE, las = 2, main = "Substitutions")
-cntgTableGA <- as.table(as.matrix(mtx[bigGA, ]))
+outGA <- rownames(contrib[contrib[, "GA"] > 15, ])
+mosaicplot(mtx[outGA, ], shade = TRUE, las = 2, main = "Substitutions")
+cntgTableGA <- as.table(as.matrix(mtx[outGA, ]))
 balloonplot(t(cntgTableGA), main = "Substitutions",
             xlab = "", ylab = "", label = FALSE,
             show.margins = FALSE)  # Probably here we see effect of replacement with 0 vs NA our completed matrix. When we normalise and had ratio, we can't just add 0 to matrix's empty column - it'll kill chi-square. But chi-square may be wrong and may be we need Yates' correction.
-rm(bigGA, cntgTableGA)
 chi2 <- 356.7633
 df <- (nrow(mtx) - 1) * (ncol(mtx) - 1)
 pval <- pchisq(chi2, df = df, lower.tail = FALSE)
 pval # NO ASSOCIATION BETWEEN SPECIFIC SPECIES AND SUBSTITUTIONS
+rm(outGA, cntgTableGA, contrib, chisq, chi2, df, pval)
 
 # if Y = n*p => Y = T(L)*F + E | L = K*n & F = K*p 
 # (L - loadings and F - factors) 
 # L should be orthogonal and F - orthonormal.
 # So if we trust chi-squre test...
-
-res.pca <- dudi.pca(mtx, nf = 3, scannf = FALSE, scale = TRUE, center = TRUE)
+###### PCA 
+res.pca <- dudi.pca(mtx, nf = 10, scannf = FALSE, scale = TRUE, center = TRUE)
 summary(res.pca)
 fviz_eig(res.pca)
-
-res.pca2 <- dudi.pca(mtx, nf = 3, scannf = FALSE, scale = FALSE, center = FALSE)
-summary(res.pca2)
-fviz_eig(res.pca2)  # I see, but we have to scale.
-
-res.pca3 <- dudi.pca(scale(mtx), nf = 3, scannf = FALSE, scale = FALSE, center = FALSE)
-summary(res.pca3)  # you may see that total inertia: 11.98. That's why I use ade4 scaling (1/n vs. 1/(n-1)).
-fviz_eig(res.pca3) 
-rm(res.pca2, res.pca3)
+eig.val <- get_eigenvalue(res.pca)
+eig.val  # first 7 explain more than 80% of variance
 
 fviz_pca_var(res.pca,
              col.var = "contrib",
-             gradient.cols = c("lightgrey", "dodgeblue", "blue"),
+             gradient.cols = c("lightgrey", "blue"),
              repel = TRUE)
+var <- get_pca_var(res.pca)
+var
+# For 3 it's no good
+corrplot(var$cos2, is.corr = FALSE) 
+fviz_cos2(res.pca, choice = "var", axes = 1:2)
+
+fviz_cos2(res.pca, choice = "var", axes = 1)
+fviz_cos2(res.pca, choice = "var", axes = 2)
+fviz_cos2(res.pca, choice = "var", axes = 3)
+fviz_cos2(res.pca, choice = "var", axes = 4)
+fviz_cos2(res.pca, choice = "var", axes = 5)
+fviz_cos2(res.pca, choice = "var", axes = 6)
+fviz_cos2(res.pca, choice = "var", axes = 7)
+fviz_cos2(res.pca, choice = "var", axes = 8)
+
+corrplot(var$contrib, is.corr = FALSE)
+
+# Contributions of variables to PC1
+fviz_contrib(res.pca, choice = "var", axes = 1, top = 10)
+# Contributions of variables to PC2
+fviz_contrib(res.pca, choice = "var", axes = 2, top = 10)
+
+fviz_pca_var(res.pca, 
+             col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+
+res.desc <- dimdesc(res.pca, axes = c(1,2), proba = 0.05)
+# Description of dimension 1
+res.desc$Dim.1
+# Description of dimension 2
+res.desc$Dim.2
 
 PCA = prcomp(mtx, center = TRUE, scale. = TRUE) # !!! or scale above!! discuss - it seems identical things
+fviz_cos2(PCA, choice = "var", axes = 1:2)  # same
+fviz_eig(PCA)  # same
+fviz_pca_var(PCA,
+             col.var = "contrib",
+             gradient.cols = c("lightgrey", "blue"),
+             repel = TRUE)  # same
+fviz_cos2(PCA, choice = "var", axes = 1)
+fviz_cos2(PCA, choice = "var", axes = 2)
+fviz_cos2(PCA, choice = "var", axes = 3)
+fviz_cos2(PCA, choice = "var", axes = 4)
+fviz_cos2(PCA, choice = "var", axes = 5)
+fviz_cos2(PCA, choice = "var", axes = 6)
+fviz_cos2(PCA, choice = "var", axes = 7)
+fviz_cos2(PCA, choice = "var", axes = 8)
+
+varPCA <- get_pca_var(PCA)
+corrplot(varPCA$cos2, is.corr = FALSE)  # different (just because of N of dims?) - yes
+
+# Contributions of variables to PC1
+fviz_contrib(PCA, choice = "var", axes = 1, top = 10)
+# Contributions of variables to PC2
+fviz_contrib(PCA, choice = "var", axes = 2, top = 10)
+corrplot(varPCA$contrib, is.corr = FALSE)
+# !!!! Kostya, may you reproduse it on your data?
+fviz_contrib(PCA, choice = "var", axes = 4, top = 10)
+fviz_contrib(PCA, choice = "var", axes = 12, top = 10)
+
+PCA2 <- FactoMineR::PCA(mtx, ncp = 10)
+fviz_eig(PCA2)
+varPCA2 <- get_pca_var(PCA2)
+corrplot(varPCA2$cos2, is.corr = FALSE)  #  all same
+corrplot(varPCA2$contrib, is.corr = FALSE)
+fviz_pca_biplot(PCA2, 
+                repel = TRUE,
+                # Individuals
+                geom.ind = "point",
+                col.ind = "grey",
+                pointshape = 21, pointsize = 1,
+                palette = "jco",
+                # Variables
+                alpha.var = "contrib", col.var = "contrib",
+                gradient.cols = "Blues",
+                legend.title = list(color = "Contrib",
+                                    alpha = "Contrib"))
+
+PCA.desc <- dimdesc(PCA2, axes = c(1:5), proba = 0.05)
+
+# Description of dimension 1
+PCA.desc$Dim.1
+# Description of dimension 2
+PCA.desc$Dim.2
+
+
 print(PCA)  # PC1: +GA; PC2: -AG; PC3: +TC 
 summary(PCA)
 MATRIX$Pca1 = PCA$x[, 1]
@@ -310,7 +385,7 @@ cor.test(Test$Pca5, Test$GenerationLength_d, method = 'spearman') # no
 
 ####### AnAge 
 AnAge = read.table('1_RAW/anage_data.txt', header = TRUE, sep = '\t')
-AnAge$Species = paste(AnAge$Genus, AnAge$Species, sep='_') 
+AnAge$Species = paste(AnAge$Genus, AnAge$Species, sep = '_') 
 AnAge = AnAge[AnAge$Class == 'Mammalia', ];  
 names(AnAge)
 
