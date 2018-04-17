@@ -23,129 +23,7 @@ library("corrplot")
 library("cowplot")
 library("ggrepel")
 
-# I take function, wich I use to calculate PCA for single cell data on gene subset:
-calculatePcaReduction <- function(.sce = sce,
-                                  nPcs = 20,
-                                  type = 'logcounts',
-                                  name = 'PCA',
-                                  use.sgenes = FALSE,
-                                  sgenes = NULL,
-                                  center = TRUE,
-                                  cells = NULL,
-                                  fastpath = TRUE,
-                                  maxit = 100) {
-    require(SingleCellExperiment)
-    if (type == 'logcounts') {
-        x <- assays(.sce)[['logcounts']]
-        
-    } else {
-        if (!type %in% assayNames(.sce)) {
-            stop("assay ", type, ' not found')
-        }
-        x <- assays(.sce)[[type]]
-    }
-    if (use.sgenes  && is.null(sgenes)) {
-        if (is.null(rowData(.sce)$keepGene)) {
-            stop("please make feature selection first")
-        }
-        sgenes <- rowData(.sce)$keepGene
-    }
-    if (!is.null(sgenes)) {
-        x <- x[sgenes,]
-    }
-    x <- t(x)
-    require(irlba)
-    if (!is.null(cells)) {
-        # cell subset is just for PC determination
-        cm <- Matrix::colMeans(x[cells, ])
-        pcs <-
-            irlba(
-                x[cells, ],
-                nv = nPcs,
-                nu = 0,
-                center = cm,
-                right_only = FALSE,
-                fastpath = fastpath,
-                maxit = maxit,
-                reorth = TRUE,
-                tol = 1e-8
-            )
-    } else {
-        if (center) {
-            cm <- Matrix::colMeans(x)
-            pcs <-
-                irlba(
-                    x,
-                    nv = nPcs,
-                    nu = 0,
-                    center = cm,
-                    right_only = FALSE,
-                    fastpath = fastpath,
-                    maxit = maxit,
-                    reorth = TRUE,
-                    tol = 1e-8
-                )
-        } else {
-            pcs <-
-                irlba(
-                    x,
-                    nv = nPcs,
-                    nu = 0,
-                    right_only = FALSE,
-                    fastpath = fastpath,
-                    maxit = maxit,
-                    reorth = TRUE,
-                    tol = 1e-8
-                )
-        }
-    }
-    rownames(pcs$v) <- colnames(x)
-    
-    
-    
-    
-    # adjust for centering!
-    if (center) {
-        pcs$center <- cm
-        
-        pcas <-
-            as.matrix(t(t(x %*% pcs$v) - t(cm %*% pcs$v)))
-    } else {
-        pcas <- as.matrix(x %*% pcs$v)
-        
-    }
-    PCA <<- pcs
-    
-    rownames(pcas) <- rownames(x)
-    colnames(pcas) <-
-        paste('PC', seq(ncol(pcas)), sep = '')
-    
-    if (name == 'ICA') {
-        reducedDims(.sce)[['PCA']] <- pcas
-        nIcs <- nPcs
-        require(fastICA)
-        a <-
-            fastICA::ica.R.def(
-                t(pcas),
-                nIcs,
-                tol = 1e-3,
-                fun = 'logcosh',
-                maxit = 200,
-                verbose = TRUE,
-                alpha = 1,
-                w.init = matrix(rnorm(nIcs * nPcs), nIcs, nPcs)
-            )
-        reducedDims(.sce)[['ICA']] <- as.matrix(x %*% pcs$v %*% a)
-        
-        colnames(reducedDims(.sce)[['ICA']]) <-
-            paste('IC', seq(ncol(reducedDims(.sce)[['ICA']])), sep = '')
-    } else {
-        reducedDims(.sce)[[name]] <- pcas
-    }
-    
-    
-    return(.sce)
-}
+source("./funDimReduction.R")
 
 
 # user = 'Kostya'
@@ -368,105 +246,19 @@ rm(outGA, cntgTableGA, contrib, chisq, chi2, df, pval)
 # L should be orthogonal and F - orthonormal.
 # So if we trust chi-squre test...
 ###### PCA 
-res.pca <- dudi.pca(mtx, nf = 10, scannf = FALSE, scale = TRUE, center = TRUE)
-summary(res.pca)
-fviz_eig(res.pca)
-eig.val <- get_eigenvalue(res.pca)
-eig.val  # first 7 explain more than 80% of variance
+test <- calculatePcaReduction(mtx = scale(mtx, center = FALSE), nPcs = 10, center = TRUE)
 
-fviz_pca_var(res.pca,
-             col.var = "contrib",
-             gradient.cols = c("lightgrey", "blue"),
-             repel = TRUE)
-var <- get_pca_var(res.pca)
-var
-# For 3 it's no good
-corrplot(var$cos2, is.corr = FALSE) 
-fviz_cos2(res.pca, choice = "var", axes = 1:2)
+ggplot(as.data.frame(subs.loadings), aes(x = PC1, y = PC2, color = rownames(subs.loadings))) +
+    geom_text(aes(label = rownames(subs.loadings))) +
+    xlab("PC1") +
+    ylab("PC2") +
+    coord_fixed()
+ggplot(as.data.frame(subs.loadings), aes(x = PC3, y = PC4, color = rownames(subs.loadings))) +
+    geom_text(aes(label = rownames(subs.loadings))) +
+    xlab("PC3") +
+    ylab("PC4") +
+    coord_fixed()
 
-fviz_cos2(res.pca, choice = "var", axes = 1)
-fviz_cos2(res.pca, choice = "var", axes = 2)
-fviz_cos2(res.pca, choice = "var", axes = 3)
-fviz_cos2(res.pca, choice = "var", axes = 4)
-fviz_cos2(res.pca, choice = "var", axes = 5)
-fviz_cos2(res.pca, choice = "var", axes = 6)
-fviz_cos2(res.pca, choice = "var", axes = 7)
-fviz_cos2(res.pca, choice = "var", axes = 8)
-
-corrplot(var$contrib, is.corr = FALSE)
-
-# Contributions of variables to PC1
-fviz_contrib(res.pca, choice = "var", axes = 1, top = 10)
-# Contributions of variables to PC2
-fviz_contrib(res.pca, choice = "var", axes = 2, top = 10)
-
-fviz_pca_var(res.pca, 
-             col.var = "contrib",
-             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
-)
-
-res.desc <- dimdesc(res.pca, axes = c(1,2), proba = 0.05)
-# Description of dimension 1
-res.desc$Dim.1
-# Description of dimension 2
-res.desc$Dim.2
-
-PCA = prcomp(mtx, center = TRUE, scale. = TRUE) # !!! or scale above!! discuss - it seems identical things
-fviz_cos2(PCA, choice = "var", axes = 1:2)  # same
-fviz_eig(PCA)  # same
-fviz_pca_var(PCA,
-             col.var = "contrib",
-             gradient.cols = c("lightgrey", "blue"),
-             repel = TRUE)  # same
-fviz_cos2(PCA, choice = "var", axes = 1)
-fviz_cos2(PCA, choice = "var", axes = 2)
-fviz_cos2(PCA, choice = "var", axes = 3)
-fviz_cos2(PCA, choice = "var", axes = 4)
-fviz_cos2(PCA, choice = "var", axes = 5)
-fviz_cos2(PCA, choice = "var", axes = 6)
-fviz_cos2(PCA, choice = "var", axes = 7)
-fviz_cos2(PCA, choice = "var", axes = 8)
-
-varPCA <- get_pca_var(PCA)
-corrplot(varPCA$cos2, is.corr = FALSE)  # different (just because of N of dims?) - yes
-
-# Contributions of variables to PC1
-fviz_contrib(PCA, choice = "var", axes = 1, top = 10)
-# Contributions of variables to PC2
-fviz_contrib(PCA, choice = "var", axes = 2, top = 10)
-corrplot(varPCA$contrib, is.corr = FALSE)
-# !!!! Kostya, may you reproduse it on your data?
-fviz_contrib(PCA, choice = "var", axes = 4, top = 10)
-fviz_contrib(PCA, choice = "var", axes = 12, top = 10)
-
-PCA2 <- FactoMineR::PCA(mtx, ncp = 10)
-fviz_eig(PCA2)
-varPCA2 <- get_pca_var(PCA2)
-corrplot(varPCA2$cos2, is.corr = FALSE)  #  all same
-corrplot(varPCA2$contrib, is.corr = FALSE)
-fviz_pca_biplot(PCA2, 
-                repel = TRUE,
-                # Individuals
-                geom.ind = "point",
-                col.ind = "grey",
-                pointshape = 21, pointsize = 1,
-                palette = "jco",
-                # Variables
-                alpha.var = "contrib", col.var = "contrib",
-                gradient.cols = "Blues",
-                legend.title = list(color = "Contrib",
-                                    alpha = "Contrib"))
-
-PCA.desc <- dimdesc(PCA2, axes = c(1:5), proba = 0.05)
-
-# Description of dimension 1
-PCA.desc$Dim.1
-# Description of dimension 2
-PCA.desc$Dim.2
-
-
-print(PCA)  # PC1: +GA; PC2: -AG; PC3: +TC 
-summary(PCA)
 MATRIX$Pca1 = PCA$x[, 1]
 MATRIX$Pca2 = PCA$x[, 2]
 MATRIX$Pca3 = PCA$x[, 3]
