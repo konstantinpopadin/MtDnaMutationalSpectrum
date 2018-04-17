@@ -23,6 +23,130 @@ library("corrplot")
 library("cowplot")
 library("ggrepel")
 
+# I take function, wich I use to calculate PCA for single cell data on gene subset:
+calculatePcaReduction <- function(.sce = sce,
+                                  nPcs = 20,
+                                  type = 'logcounts',
+                                  name = 'PCA',
+                                  use.sgenes = FALSE,
+                                  sgenes = NULL,
+                                  center = TRUE,
+                                  cells = NULL,
+                                  fastpath = TRUE,
+                                  maxit = 100) {
+    require(SingleCellExperiment)
+    if (type == 'logcounts') {
+        x <- assays(.sce)[['logcounts']]
+        
+    } else {
+        if (!type %in% assayNames(.sce)) {
+            stop("assay ", type, ' not found')
+        }
+        x <- assays(.sce)[[type]]
+    }
+    if (use.sgenes  && is.null(sgenes)) {
+        if (is.null(rowData(.sce)$keepGene)) {
+            stop("please make feature selection first")
+        }
+        sgenes <- rowData(.sce)$keepGene
+    }
+    if (!is.null(sgenes)) {
+        x <- x[sgenes,]
+    }
+    x <- t(x)
+    require(irlba)
+    if (!is.null(cells)) {
+        # cell subset is just for PC determination
+        cm <- Matrix::colMeans(x[cells, ])
+        pcs <-
+            irlba(
+                x[cells, ],
+                nv = nPcs,
+                nu = 0,
+                center = cm,
+                right_only = FALSE,
+                fastpath = fastpath,
+                maxit = maxit,
+                reorth = TRUE,
+                tol = 1e-8
+            )
+    } else {
+        if (center) {
+            cm <- Matrix::colMeans(x)
+            pcs <-
+                irlba(
+                    x,
+                    nv = nPcs,
+                    nu = 0,
+                    center = cm,
+                    right_only = FALSE,
+                    fastpath = fastpath,
+                    maxit = maxit,
+                    reorth = TRUE,
+                    tol = 1e-8
+                )
+        } else {
+            pcs <-
+                irlba(
+                    x,
+                    nv = nPcs,
+                    nu = 0,
+                    right_only = FALSE,
+                    fastpath = fastpath,
+                    maxit = maxit,
+                    reorth = TRUE,
+                    tol = 1e-8
+                )
+        }
+    }
+    rownames(pcs$v) <- colnames(x)
+    
+    
+    
+    
+    # adjust for centering!
+    if (center) {
+        pcs$center <- cm
+        
+        pcas <-
+            as.matrix(t(t(x %*% pcs$v) - t(cm %*% pcs$v)))
+    } else {
+        pcas <- as.matrix(x %*% pcs$v)
+        
+    }
+    PCA <<- pcs
+    
+    rownames(pcas) <- rownames(x)
+    colnames(pcas) <-
+        paste('PC', seq(ncol(pcas)), sep = '')
+    
+    if (name == 'ICA') {
+        reducedDims(.sce)[['PCA']] <- pcas
+        nIcs <- nPcs
+        require(fastICA)
+        a <-
+            fastICA::ica.R.def(
+                t(pcas),
+                nIcs,
+                tol = 1e-3,
+                fun = 'logcosh',
+                maxit = 200,
+                verbose = TRUE,
+                alpha = 1,
+                w.init = matrix(rnorm(nIcs * nPcs), nIcs, nPcs)
+            )
+        reducedDims(.sce)[['ICA']] <- as.matrix(x %*% pcs$v %*% a)
+        
+        colnames(reducedDims(.sce)[['ICA']]) <-
+            paste('IC', seq(ncol(reducedDims(.sce)[['ICA']])), sep = '')
+    } else {
+        reducedDims(.sce)[[name]] <- pcas
+    }
+    
+    
+    return(.sce)
+}
+
 
 # user = 'Kostya'
 # if (user == 'Kostya') {setwd('/hdd/SCIENCE_PROJECTS_BODY/MITOCHONDRIA/MutSpectrum/')}
