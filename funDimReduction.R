@@ -21,13 +21,19 @@ calculatePcaReduction <- function(
         wthZeros <- purrr::map_lgl(data.use, any(. == 0))
         subs <- !wthZeros
     }
-    if (!is.null(subs)) {
-        data.use <- data.use[, subs]
-    }
     if (!is.null(species)) {
         # species subset is just for PC determination
-        data.use <- data.use[species, ]
-    } 
+        data.use <- 
+            data.use %>% 
+            filter(Species %in% species) %>% 
+            as.data.frame() %>% 
+            column_to_rownames("Species")
+    } else {
+        data.use <- column_to_rownames(as.data.frame(data.use), "Species")
+    }
+    if (!is.null(subs)) {
+        data.use <- select(data.use, vars(subs))
+    }
     data.use <- t(data.use)
     library(irlba)
     if (rev.pca) {
@@ -113,10 +119,10 @@ calculatePcaReduction <- function(
             subs.loadings <- as.matrix(data.use %*% pcs$v)
         }
         sdev <<- pcs$d / sqrt(max(1, ncol(data.use) - 1))
-        if(weight.by.var){
-            species.embeddings <- pcs$u %*% diag(pcs$d)
+        if (weight.by.var) {
+            species.embeddings <- pcs$v %*% diag(pcs$d)
         } else {
-            species.embeddings <- pcs$u
+            species.embeddings <- pcs$v
         }
     }
     
@@ -125,11 +131,11 @@ calculatePcaReduction <- function(
     colnames(x = subs.loadings) <- paste0(reduction.key, 1:nPcs)
     rownames(x = species.embeddings) <- colnames(x = data.use)
     colnames(x = species.embeddings) <- colnames(x = subs.loadings)
-    subs.loadings <<- subs.loadings
-    species.embeddings <<- species.embeddings
+    subs.loadings <<- subs.loadings <- as.data.frame(subs.loadings) %>% rownames_to_column("Subs")
+    species.embeddings <<- species.embeddings <- as.data.frame(species.embeddings) %>% rownames_to_column("Species")
     
     if (reduction.name == 'ICA' && rev.pca == FALSE) {
-        pcas <- subs.loadings
+        pcas <- subs.loadings %>% select(-Species) %>% as.matrix()
         nIcs <- nPcs
         library(fastICA)
         a <-
@@ -147,7 +153,11 @@ calculatePcaReduction <- function(
         colnames(ICA) <- paste('IC', seq(ncol(ICA)), sep = '')
         return(ICA)
     } else {
-        data.use <- t(data.use)
-        data.use <- cbind(data.use, species.embeddings)
+        data.use <- as.data.frame(t(data.use))
+        data.use <- 
+            rownames_to_column(data.use, "Species") %>% 
+            inner_join(species.embeddings, by = "Species")
         return(data.use)
     }
+}
+

@@ -10,8 +10,7 @@
 rm(list = ls(all.names = TRUE))
 
 # For PCA analysis:
-library("ade4")
-library("FactoMineR")
+library("irlba")
 # library("logisticPCA")  # May be used to explore presence/absence some type of subst. I've add it in case of our zeros-completion of NA.
 # For data-wrangling:
 library("tidyverse")
@@ -40,8 +39,10 @@ length(unique(MUT$Species))  # 2404
 # if (METHOD == 'PARSIMONY')     {MUT = read.table('2_DERIVED/Table_fixed_parsymony.txt', header = TRUE)}  # not loaded yet
 
 ##### FILTER: only mammals.  THIS IS STUPID TO TAKE MAMMALIAN LIST FROM GENERATION TIME DATA BASE. WE NEED TAXONOMY DIRECTLY FROM PIPELINE!!! ALYA, KOSTYA
-GenerTime <- read_tsv('1_Raw/GenerationLenghtforMammals.xlsx.txt') %>% 
-    mutate(Species = str_replace(Scientific_name, " ", "_"))
+GenerTime <- read_tsv('1_Raw/GenerationLenghtforMammals.xlsx.txt', 
+                      na = c("", "NA", "no information")) %>% 
+    mutate(Species = str_replace(Scientific_name, " ", "_")) %>% 
+    select(-starts_with("Sources"), -Genus, -Scientific_name, -Data_AFR)
 ListOfMammals <- GenerTime$Species; length(ListOfMammals) # 5426 - at least will use it to work with mammals only
 MUT <- MUT %>% filter(Species %in% ListOfMammals)
 rm(ListOfMammals)
@@ -217,19 +218,19 @@ psych::describe(mtx)
 #             show.margins = FALSE)
 # mosaicplot(mtx, shade = TRUE, las = 2, main = "Substitutions")
 # vcd::assoc(head(cntgTable, 10), shade = TRUE, las = 3)
-chisq <- chisq.test(mtx)
+chisq <- chisq.test(mtx, simulate.p.value = TRUE, B = 1e4)
 tidy(chisq)  # not significant
 #   statistic p.value parameter                     method
 # 1  356.7633       1      5522 Pearson's Chi-squared test
 
 
 # Contribution in percentage (%) of cell to Chi-square score:
-contrib <- (100 * chisq$residuals^2) / chisq$statistic
+contrib <- 100 * (chisq$residuals^2 / chisq$statistic)
 for (i in seq_along(contrib)) {
     hist(contrib[, i], main = colnames(contrib)[i], breaks = 50)
 }  # here we see group of strangers on GA hist with large conribution
-corrplot(contrib, is.corr = FALSE)
-outGA <- rownames(contrib[contrib[, "GA"] > 15, ])
+
+outGA <- rownames(contrib[contrib[, "GA"] > .15, ])
 mosaicplot(mtx[outGA, ], shade = TRUE, las = 2, main = "Substitutions")
 cntgTableGA <- as.table(as.matrix(mtx[outGA, ]))
 balloonplot(t(cntgTableGA), main = "Substitutions",
@@ -239,38 +240,31 @@ chi2 <- 356.7633
 df <- (nrow(mtx) - 1) * (ncol(mtx) - 1)
 pval <- pchisq(chi2, df = df, lower.tail = FALSE)
 pval # NO ASSOCIATION BETWEEN SPECIFIC SPECIES AND SUBSTITUTIONS
-rm(outGA, cntgTableGA, contrib, chisq, chi2, df, pval)
+rm(outGA, cntgTableGA, contrib, chisq, chi2, df, pval, mtx)
 
 # if Y = n*p => Y = T(L)*F + E | L = K*n & F = K*p 
 # (L - loadings and F - factors) 
 # L should be orthogonal and F - orthonormal.
 # So if we trust chi-squre test...
 ###### PCA 
-test <- calculatePcaReduction(mtx = scale(mtx, center = FALSE), nPcs = 10, center = TRUE)
+TABLE <- calculatePcaReduction(data.use = TABLE, nPcs = 10)
 
-ggplot(as.data.frame(subs.loadings), aes(x = PC1, y = PC2, color = rownames(subs.loadings))) +
-    geom_text(aes(label = rownames(subs.loadings))) +
+p_subs3 <- ggplot(as.data.frame(subs.loadings), aes(x = PC1, y = PC2, color = Subs)) +
+    geom_text(aes(label = Subs)) +
     xlab("PC1") +
-    ylab("PC2") +
-    coord_fixed()
-ggplot(as.data.frame(subs.loadings), aes(x = PC3, y = PC4, color = rownames(subs.loadings))) +
-    geom_text(aes(label = rownames(subs.loadings))) +
+    ylab("PC2") 
+p_subs4 <- ggplot(as.data.frame(subs.loadings), aes(x = PC3, y = PC4, color = Subs)) +
+    geom_text(aes(label = Subs)) +
     xlab("PC3") +
-    ylab("PC4") +
-    coord_fixed()
-
-MATRIX$Pca1 = PCA$x[, 1]
-MATRIX$Pca2 = PCA$x[, 2]
-MATRIX$Pca3 = PCA$x[, 3]
-MATRIX$Pca4 = PCA$x[, 4]
-MATRIX$Pca5 = PCA$x[, 5]
-MATRIX$Pca6 = PCA$x[, 6]
-MATRIX$Pca7 = PCA$x[, 7]
-MATRIX$Pca8 = PCA$x[, 8]
-MATRIX$Pca9 = PCA$x[, 9]
-MATRIX$Pca10 = PCA$x[, 10]
-MATRIX$Pca11 = PCA$x[, 11]
-MATRIX$Pca12 = PCA$x[, 12]
+    ylab("PC4") 
+pSubs <- plot_grid(p_subs, p_subs2, p_subs3, p_subs4, 
+                   align = 'v', labels = LETTERS[1:4], 
+                   scale = c(c(1, 1), c(1, 1), c(1, 1), c(1, 1)), 
+                   hjust = -1, ncol = 2, axis = 't', rel_heights = c(1, 1.3))
+if (!dir.exists("./4_Figures")) {
+    dir.create("./4_Figures")
+}
+save_plot("./4_Figures/Substitutions_PCA.pdf", pSubs, base_height = 11, base_aspect_ratio = 1.1)
 
 # QUESTION: IF WE USE MAMMALIAN SPECIES TO GET PCA (TO UNDERSTAND RULES OF PCA), TO SAVE ALL THESE LINEAR COMBINATIONS AND LATER TO USE THESE COMBINATIONS TO RECONSTRUCT PCs FOR OTHER MAMMALS, CHORDATA AND EVEN CANCERS!?
 # FOR ME IT IS MEANINGFUL. ANY COMMENTS?
@@ -280,138 +274,44 @@ MATRIX$Pca12 = PCA$x[, 12]
 ####################
 
 ###### EXTREMES
-MATRIX[MATRIX$Pca1 < quantile(MATRIX$Pca1, 0.05), ]$Species 
-MATRIX[MATRIX$Pca1 > quantile(MATRIX$Pca1, 0.95), ]$Species 
-MATRIX[MATRIX$Pca2 < quantile(MATRIX$Pca2, 0.05), ]$Species 
-MATRIX[MATRIX$Pca2 > quantile(MATRIX$Pca2, 0.95), ]$Species 
-MATRIX[MATRIX$Pca3 < quantile(MATRIX$Pca3, 0.05), ]$Species 
-MATRIX[MATRIX$Pca3 > quantile(MATRIX$Pca3, 0.95), ]$Species   
+TABLE %>% filter(PC1 < quantile(PC1, .05)) %>% select(Species)
+TABLE %>% filter(PC1 > quantile(PC1, .95)) %>% select(Species)
+TABLE %>% filter(PC2 < quantile(PC2, .05)) %>% select(Species)
+TABLE %>% filter(PC2 > quantile(PC2, .95)) %>% select(Species)
+TABLE %>% filter(PC3 < quantile(PC3, .05)) %>% select(Species)
+TABLE %>% filter(PC3 > quantile(PC3, .95)) %>% select(Species)
 
 ###### GENERATION LENGTH
-GenerTime = read.table('/hdd/SCIENCE_PROJECTS_BODY/MITOCHONDRIA/MutSpectrum/1_RAW/GenerationLenghtforAllMammals/GenerationLenghtforMammals.xlsx.txt', header = TRUE, sep = '\t')
-GenerTime$Species = gsub(' ', '_', GenerTime$Scientific_name)
-GenerTime = GenerTime[, c(11, 13)]
+AnAge = read_tsv('1_Raw/anage_data.tsv')
+Test <- inner_join(TABLE, GenerTime) %>% inner_join(AnAge) %>% type_convert()
 
-Test = merge(MATRIX, GenerTime) 
-cor.test(Test$Pca1, Test$GenerationLength_d, method = 'spearman') # no
-cor.test(Test$Pca2, Test$GenerationLength_d, method = 'spearman') # super negative (-AG) -0.34
-cor.test(Test$Pca3, Test$GenerationLength_d, method = 'spearman') # positive (+TC)       +0.26
-cor.test(Test$Pca4, Test$GenerationLength_d, method = 'spearman') # no
-cor.test(Test$Pca5, Test$GenerationLength_d, method = 'spearman') # no
+Var1 <- list(Test %>% select(PC1:PC10) %>% colnames())
+Var2 <- list(Test %>% select(AdultBodyMass_g:GenerationLength_d, 
+                             Female.maturity..days.:Maximum.longevity..yrs., 
+                             Metabolic.rate..W.:Temperature..K.) %>% colnames())
 
-####### AnAge 
-AnAge = read.table('1_RAW/anage_data.txt', header = TRUE, sep = '\t')
-AnAge$Species = paste(AnAge$Genus, AnAge$Species, sep = '_') 
-AnAge = AnAge[AnAge$Class == 'Mammalia', ];  
-names(AnAge)
+list_Tests <- cross2(Var1[[1]], Var2[[1]])
 
-### Adult.weight..g.
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Adult.weight..g."))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19], method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # negative
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # positive
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # no
+corrtest <- function(v) {
+    fun <- function(x, y) cor.test(x, y, method = 'spearman')
+    vars <- select(Test, v[[1]], v[[2]]) %>% type_convert()
+    res <- with(Test, fun(vars[, 1], vars[, 2]))
+    result <- data.frame(Var1 = v[[1]], Var2 = v[[2]])
+    result <- cbind(result, tidy(res))
+}
 
-### Maximum.longevity..yrs.
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Maximum.longevity..yrs."))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # negative
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # positive
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # a bit positive (but unlikely survive multiple test correction)
+Tests_results <- list_Tests %>% map_df(~ corrtest(.))
 
-### Female.maturity..days.
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Female.maturity..days."))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # negative
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # positive
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # no
-
-### Weaning..days.
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Weaning..days."))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # negative
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # positive
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # no
-
-### Birth.weight..g.
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Birth.weight..g."))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # negative
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # positive
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # a bit positive (unlikely will pass multiple test correction)
-
-### Litters.Clutches.per.year
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Litters.Clutches.per.year"))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # positive
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # negative
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # no
-
-### Litter.Clutch.size
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Litter.Clutch.size"))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # positive
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # negative
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # no
-
-### Weaning.weight..g.
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Weaning.weight..g."))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # negative
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # no
-
-### Metabolic.rate..W. 
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Metabolic.rate..W."))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)  
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # no
-
-### Temperature..K.
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Temperature..K."))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # no
-
-### Growth.rate..1.days.
-AnAge1 = AnAge[, (names(AnAge) %in% c("Species", "Growth.rate..1.days."))]; AnAge1 = AnAge1[!is.na(AnAge1[, 2]), ]
-Test = merge(MATRIX, AnAge1); nrow(Test)    
-cor.test(Test$Pca1, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca2, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca3, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca4, Test[, 19],  method = 'spearman') # no
-cor.test(Test$Pca5, Test[, 19],  method = 'spearman') # no
+knitr::kable(Tests_results, "pandoc")
 
 ###### HETEROTERMS
-Hib = read.table('1_RAW/hibernation/tornew5.csv', header = TRUE, sep = ',')
+Hib = read_csv('1_Raw/tornew5.csv')
 Hib$Species = gsub(" ", '_', Hib$Species)
 HibOnlySpecies = Hib[Hib$Type == 'HIB', ]$Species; length(HibOnlySpecies)
 DtOnlySpecies = Hib[Hib$Type == 'DT', ]$Species; length(DtOnlySpecies)
 HibAndDtSpecies = Hib[Hib$Type == 'HIB' || Hib$Type == 'DT', ]$Species; length(HibAndDtSpecies)
-boxplot(MATRIX[MATRIX$Species %in% HibOnlySpecies, ]$Pca1, MATRIX[!MATRIX$Species %in% HibOnlySpecies, ]$Pca1,  notch = TRUE,  names = c('HibOnlySpecies', 'Other'),  ylab = 'PC1'); # !!!! HibSpecies have a bit lower Pc1
-boxplot(MATRIX[MATRIX$Species %in% DtOnlySpecies, ]$Pca1, MATRIX[!MATRIX$Species %in% DtOnlySpecies, ]$Pca1,  notch = TRUE,  names = c('HibOnlySpecies', 'Other'), ylab = 'PC1');   # nothing
+boxplot(Test[Test$Species %in% HibOnlySpecies, ]$PC1, Test[!Test$Species %in% HibOnlySpecies, ]$PC1,  notch = TRUE,  names = c('HibOnlySpecies', 'Other'),  ylab = 'PC1'); # !!!! HibSpecies have a bit lower Pc1
+boxplot(Test[Test$Species %in% DtOnlySpecies, ]$PC1, Test[!Test$Species %in% DtOnlySpecies, ]$PC1,  notch = TRUE,  names = c('HibOnlySpecies', 'Other'), ylab = 'PC1');   # nothing
 # control for body mass? they are small! # other tests - decreased BMR as compared to body mass - compare strong outliers (cold and hot)...; animals, which live more than should according to bosy mass (naked mole rat)
 
 ###### MARSUPIALS, BATS... AGAIN NEED NORMAL TAXONOMY !!!!!!!!
