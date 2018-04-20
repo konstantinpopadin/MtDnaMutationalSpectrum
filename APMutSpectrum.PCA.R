@@ -305,6 +305,12 @@ Tests_results <- list_Tests %>% map_df(~ corrtest(.))
 knitr::kable(Tests_results, "pandoc")
 cl_results <- Tests_results %>% filter(p.value < .001)
 knitr::kable(cl_results, "pandoc", caption = "TABLE OF SIGNIFICANT CORRELATIONS BETWEEN PCS AND ECOLOGY")
+if (!dir.exists("./3_Results")) {
+    dir.create("./3_Results")
+}
+pdf("./3_Results/Significant_PCs_Correlations.pdf", height = 4, width = 12)
+gridExtra::grid.table(cl_results)
+dev.off()
 
 # Table: TABLE OF SIGNIFICANT CORRELATIONS BETWEEN PCS AND ECOLOGY
 # 
@@ -350,7 +356,9 @@ ggplot(Tab1, aes(Taxon, PC1)) + geom_boxplot()
 # boxplot(Test[Test$Species %in% Marsupials, ]$PC1, Test[Test$Species %in% Placental, ]$PC1,  notch = TRUE, names = c('Marsupials', 'Placental'),  ylab = 'PC1'); # !!!! Marsupials have a bit lower load of PC1
 
 ###### FIGURES:
-Tab2 <- Tab1 %>% arrange(GenerationLength_d) %>% mutate(GL_grops = ntile(GenerationLength_d, 5))
+Tab2 <- Tab1 %>% arrange(GenerationLength_d) %>% group_by(Taxon) %>% mutate(GL_grops = ntile(GenerationLength_d, 5))
+
+write_csv(Tab2, "./3_Results/PC2_Grouped_by_GL_taxon.csv")
 
 p_SpEmb1 <- ggplot(data = Tab2, aes(x = PC1, y = PC2, colour = GL_grops, alpha = .4)) + geom_point()
 p_SpEmb2 <- ggplot(data = Tab2, aes(x = PC2, y = PC3, colour = GL_grops, alpha = .4)) + geom_point()
@@ -425,6 +433,8 @@ barplot(
               'GA', 'GC', 'GT'),
     main = "Matrix produced by PC1:PC3"
 )
+trunc <- rownames_to_column(trunc, "Species")
+write_csv(trunc, "./3_Results/PCs1-3_Truncated_tab.csv")
 
 
 ### NOW - OPPOSITE EXERCISE: I WANT TO USE ONLY 4-10 PCs to reconstruct signature of gamma polymeraze:
@@ -446,6 +456,8 @@ barplot(
               'GA', 'GC', 'GT'),
     main = "Matrix produced by PC4:PC10"
     )
+gamma <- rownames_to_column(gamma, "Species")
+write_csv(gamma, "./3_Results/DnaPolymerazeSignature_tab.csv")
 
 #### NAIVE CHECKS BELOW - work well
 #### Here you shoud use predict.
