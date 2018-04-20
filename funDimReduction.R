@@ -7,7 +7,7 @@ calculatePcaReduction <- function(
     subs = NULL,  # or select substitutions directly
     center = TRUE,
     species = NULL,
-    rev.pca = FALSE,  # cells X genes matrix or species X substitution
+    rev.pca = FALSE,  # species X substitution
     fastpath = TRUE,
     maxit = 100,
     weight.by.var = TRUE,
