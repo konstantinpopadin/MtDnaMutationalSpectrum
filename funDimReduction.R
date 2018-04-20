@@ -67,10 +67,10 @@ calculatePcaReduction <- function(
                 )
         }
         sdev <<- pcs$d / sqrt(max(1, nrow(data.use) - 1))
-        if(weight.by.var){
-            subs.loadings <- pca.results$u %*% diag(pca.results$d)
+        if (weight.by.var) {
+            subs.loadings <- pcs$v %*% diag(pcs$d)
         } else{
-            subs.loadings <- pca.results$u
+            subs.loadings <- pcs$v
         }
         # adjust for centering!
         if (center) {
@@ -80,8 +80,7 @@ calculatePcaReduction <- function(
         } else {
             species.embeddings <- as.matrix(tdata.use %*% pcs$v)
         }
-    }
-    else {
+    } else {
         nPcs <- min(nPcs, nrow(x = data.use) - 1)
         if (center) {
             cm <- Matrix::colMeans(data.use)
@@ -125,7 +124,7 @@ calculatePcaReduction <- function(
             species.embeddings <- pcs$v
         }
     }
-    
+    pcs <<- pcs
     
     rownames(x = subs.loadings) <- rownames(x = data.use)
     colnames(x = subs.loadings) <- paste0(reduction.key, 1:nPcs)

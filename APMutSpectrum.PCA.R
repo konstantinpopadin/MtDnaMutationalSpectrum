@@ -240,14 +240,14 @@ chi2 <- 356.7633
 df <- (nrow(mtx) - 1) * (ncol(mtx) - 1)
 pval <- pchisq(chi2, df = df, lower.tail = FALSE)
 pval # NO ASSOCIATION BETWEEN SPECIFIC SPECIES AND SUBSTITUTIONS
-rm(outGA, cntgTableGA, contrib, chisq, chi2, df, pval, mtx)
+rm(outGA, cntgTableGA, contrib, chisq, chi2, df, pval)
 
 # if Y = n*p => Y = T(L)*F + E | L = K*n & F = K*p 
 # (L - loadings and F - factors) 
 # L should be orthogonal and F - orthonormal.
 # So if we trust chi-squre test...
 ###### PCA 
-TABLE <- calculatePcaReduction(data.use = TABLE, nPcs = 10)
+TABLE <- calculatePcaReduction(data.use = TABLE, nPcs = 10, center = TRUE, weight.by.var = FALSE, rev.pca = FALSE, seed.use = 42)
 
 p_subs3 <- ggplot(as.data.frame(subs.loadings), aes(x = PC1, y = PC2, color = Subs)) +
     geom_text(aes(label = Subs)) +
@@ -303,43 +303,65 @@ corrtest <- function(v) {
 Tests_results <- list_Tests %>% map_df(~ corrtest(.))
 
 knitr::kable(Tests_results, "pandoc")
+cl_results <- Tests_results %>% filter(p.value < .001)
+knitr::kable(cl_results, "pandoc", caption = "TABLE OF SIGNIFICANT CORRELATIONS BETWEEN PCS AND ECOLOGY")
+
+# Table: TABLE OF SIGNIFICANT CORRELATIONS BETWEEN PCS AND ECOLOGY
+# 
+# Var1   Var2                                 estimate   statistic     p.value  method                            alternative 
+# -----  ---------------------------------  ----------  ----------  ----------  --------------------------------  ------------
+# PC2    AdultBodyMass_g                     0.2822715   1960213.3   0.0000049  Spearman's rank correlation rho   two.sided   
+# PC2    Max_longevity_d                     0.2486489   1709534.2   0.0001023  Spearman's rank correlation rho   two.sided   
+# PC2    Rspan_d                             0.2629621    842533.9   0.0002469  Spearman's rank correlation rho   two.sided   
+# PC2    AFR_d                               0.2854507    816826.3   0.0000655  Spearman's rank correlation rho   two.sided   
+# PC2    Calculated_GL_d                     0.2878064    801346.0   0.0000636  Spearman's rank correlation rho   two.sided   
+# PC2    GenerationLength_d                  0.2539992   2037429.0   0.0000421  Spearman's rank correlation rho   two.sided   
+# PC2    Female.maturity..days.              0.2608739    831649.9   0.0002883  Spearman's rank correlation rho   two.sided   
+# PC2    Gestation.Incubation..days.         0.2519047   1291713.0   0.0001708  Spearman's rank correlation rho   two.sided   
+# PC2    Weaning..days.                      0.2751545    777356.9   0.0001441  Spearman's rank correlation rho   two.sided   
+# PC2    Inter.litter.Interbirth.interval    0.2901497    440547.3   0.0002501  Spearman's rank correlation rho   two.sided   
+# PC2    Birth.weight..g.                    0.2657801    949859.6   0.0001540  Spearman's rank correlation rho   two.sided   
+# PC2    Adult.weight..g.                    0.2768955   1905742.0   0.0000085  Spearman's rank correlation rho   two.sided   
+# PC2    Maximum.longevity..yrs.             0.2569373   1265447.7   0.0001294  Spearman's rank correlation rho   two.sided   
 
 ###### HETEROTERMS
 Hib = read_csv('1_Raw/tornew5.csv')
 Hib$Species = gsub(" ", '_', Hib$Species)
 HibOnlySpecies = Hib[Hib$Type == 'HIB', ]$Species; length(HibOnlySpecies)
 DtOnlySpecies = Hib[Hib$Type == 'DT', ]$Species; length(DtOnlySpecies)
-HibAndDtSpecies = Hib[Hib$Type == 'HIB' || Hib$Type == 'DT', ]$Species; length(HibAndDtSpecies)
-boxplot(Test[Test$Species %in% HibOnlySpecies, ]$PC1, Test[!Test$Species %in% HibOnlySpecies, ]$PC1,  notch = TRUE,  names = c('HibOnlySpecies', 'Other'),  ylab = 'PC1'); # !!!! HibSpecies have a bit lower Pc1
-boxplot(Test[Test$Species %in% DtOnlySpecies, ]$PC1, Test[!Test$Species %in% DtOnlySpecies, ]$PC1,  notch = TRUE,  names = c('HibOnlySpecies', 'Other'), ylab = 'PC1');   # nothing
+Tab1 <- Hib %>% select(Species, Taxon, Type:Boutmean, lat:prec) %>% right_join(Test)
+ggplot(Tab1, aes(Type, PC1)) + geom_boxplot()
+# boxplot(Test[Test$Species %in% HibOnlySpecies, ]$PC1, Test[!Test$Species %in% HibOnlySpecies, ]$PC1,  notch = TRUE,  names = c('HibOnlySpecies', 'Other'),  ylab = 'PC1'); # !!!! HibSpecies have a bit lower load of PC1
+# boxplot(Test[Test$Species %in% DtOnlySpecies, ]$PC1, Test[!Test$Species %in% DtOnlySpecies, ]$PC1,  notch = TRUE,  names = c('DtOnlySpecies', 'Other'), ylab = 'PC1');   # nothing
+# boxplot(Test[Test$Species %in% HibOnlySpecies, ]$PC1, Test[Test$Species %in% DtOnlySpecies, ]$PC1,  notch = TRUE,  names = c('HibOnlySpecies', 'DtOnlySpecies'),  ylab = 'PC1')  # DT have more impute from PC1
 # control for body mass? they are small! # other tests - decreased BMR as compared to body mass - compare strong outliers (cold and hot)...; animals, which live more than should according to bosy mass (naked mole rat)
 
 ###### MARSUPIALS, BATS... AGAIN NEED NORMAL TAXONOMY !!!!!!!!
-Marsupials = c(AnAge[AnAge$Order == 'Diprotodontia' | AnAge$Order == 'Didelphimorphia' | AnAge$Order == 'Dasyuromorphia', ]$Species)
-Placental = c(AnAge[AnAge$Order == 'Artiodactyla' | AnAge$Order == 'Cetacea' | AnAge$Order == 'Carnivora', ]$Species)
-boxplot(MATRIX[MATRIX$Species %in% Marsupials, ]$Pca1, MATRIX[MATRIX$Species %in% Placental, ]$Pca1,  notch = TRUE); # !!!! HibSpecies have a bit lower Pc1
+Tax <- select(Hib, Taxon, Order) %>% distinct() %>% filter(Taxon != "Mar") %>% mutate(Order = str_to_title(Order))
+Tab1 <- left_join(Test, Tax)
+Tab1 %>% filter(is.na(Taxon)) %>% janitor::tabyl(Order)
+
+Marsupials <- c("Didelphimorphia")
+Placental <- c("Artiodactyla", "Cetacea", "Cingulata", "Erinaceomorpha", "Lagomorpha", "Perissodactyla", "Pilosa", "Proboscidea", "Scandentia", "Soricomorpha")
+
+Tab1 %>% mutate(Taxon = ifelse(is.na(Taxon), ifelse(Order %in% Placental, "Plac", "Mars"), Taxon)) %>% janitor::tabyl(Order, Taxon)
+Tab1 <- Tab1 %>% mutate(Taxon = ifelse(is.na(Taxon), ifelse(Order %in% Placental, "Plac", "Mars"), Taxon))
+ggplot(Tab1, aes(Taxon, PC1)) + geom_boxplot()
+# boxplot(Test[Test$Species %in% Marsupials, ]$PC1, Test[Test$Species %in% Placental, ]$PC1,  notch = TRUE, names = c('Marsupials', 'Placental'),  ylab = 'PC1'); # !!!! Marsupials have a bit lower load of PC1
 
 ###### FIGURES:
+Tab2 <- Tab1 %>% arrange(GenerationLength_d) %>% mutate(GL_grops = ntile(GenerationLength_d, 5))
 
-MATRIX = merge(MATRIX, GenerTime)
-MATRIX = MATRIX[order(MATRIX$GenerationLength_d), ]
-MATRIX$Col = c(rep('green', 150), rep('gray', 187), rep('red', 150))
-summary(PCA)
-print(PCA)
+p_SpEmb1 <- ggplot(data = Tab2, aes(x = PC1, y = PC2, colour = GL_grops, alpha = .4)) + geom_point()
+p_SpEmb2 <- ggplot(data = Tab2, aes(x = PC2, y = PC3, colour = GL_grops, alpha = .4)) + geom_point()
 
-pdf('4_FIGURES/PCA.pdf', width = 14, height = 14)
-par(mfcol=c(2, 3))
-summary(PCA)
-#plot(PCA)
-plot(MATRIX$Pca1, MATRIX$Pca2, col = MATRIX$Col)
-plot(MATRIX$Pca2, MATRIX$Pca3, col = MATRIX$Col)
 # plot(PCA$x[, 1], MATRIX$GenerationLength_d); cor.test(PCA$x[, 1], MATRIX$GenerationLength_d, method = 'spearman') # nothing  - First mutagen signature! Body mass normalized BMR!
-plot(MATRIX$Pca2, log2(MATRIX$GenerationLength_d)); cor.test(MATRIX$Pca2, MATRIX$GenerationLength_d, method = 'spearman')
-plot(MATRIX$Pca3, log2(MATRIX$GenerationLength_d)); cor.test(MATRIX$Pca2, MATRIX$GenerationLength_d, method = 'spearman') 
-biplot(PCA, col = c('grey', 'black'), cex = 0.5)
-biplot(PCA, choices=c(2, 3), col = c('grey', 'black'), cex = 0.5) #  biplot(princomp(USArrests), choices=c(1, 3))
-dev.off()
+# ggplot(data = Tab2, aes(x = PC2, y = GenerationLength_d, colour = GL_grops, alpha = .4)) + geom_point() + geom_smooth(data = Tab2, mapping = aes(x = PC2, y = GenerationLength_d, linetype = Taxon)) + scale_y_log10()
+p_SpGL1 <- ggplot(data = Tab2, aes(x = PC2, y = GenerationLength_d, colour = GL_grops, alpha = .4)) + geom_point() + scale_y_log10(); cor.test(Tab2$PC2, Tab2$GenerationLength_d, method = 'spearman')
+p_SpGL2 <- ggplot(data = Tab2, aes(x = PC3, y = GenerationLength_d, colour = GL_grops, alpha = .4)) + geom_point() + scale_y_log10(); cor.test(Tab2$PC3, Tab2$GenerationLength_d, method = 'spearman') 
 
+pEco <- plot_grid(p_SpEmb1, p_SpEmb2, p_SpGL1, p_SpGL2, p_subs3, p_subs4, ncol = 2, nrow = 3)
+save_plot('4_Figures/Ecology_PCA.pdf', pEco, base_height = 14)
 ####################
 #### FIND DNA POLYMERAZE SIGNATURE (last PCs)!!!!!
 ####################
@@ -347,31 +369,70 @@ dev.off()
 # other components are not driven by ecology, physiology... sow we need to subtract effect of the first three PC and get naked signature of DNA polymeraze!!!
 # how to do it carefully?!
 
-pdf('4_FIGURES/DnaPolymerazeSignature.pdf', width = 14, height = 14)
-biplot(PCA, choices=c(4, 5), col = c('grey', 'black'), cex = 0.5) #  biplot(princomp(USArrests), choices=c(1, 3))
-dev.off()
+p_SpEmb3 <- ggplot(data = Tab2, aes(x = PC4, y = PC5, colour = GL_grops, alpha = .4)) + geom_point()
+save_plot('4_Figures/DnaPolymerazeSignature_PCA.pdf', p_SpEmb3, base_height = 7)
 
-PCA$x # PC's
-PCA$sdev # the eigenvalues (res$sdev) giving information on the magnitude of each PC, 
-PCA$rotation # and the loadings (res$rotation).
+# Original matrix
+barplot(
+    c(
+        mean(mtx$AT), mean(mtx$AG), mean(mtx$AC),
+        mean(mtx$TA), mean(mtx$TG), mean(mtx$TC),
+        mean(mtx$CA), mean(mtx$CG), mean(mtx$CT),
+        mean(mtx$GA), mean(mtx$GC), mean(mtx$GT)),
+    names = c('AT', 'AG', 'AC',
+              'TA', 'TG', 'TC',
+              'CA', 'CG', 'CT',
+              'GA', 'GC', 'GT'),
+    main = "Original matrix"
+)
+
+# Reproduce original matrix of substitution
+species.embeddings <- species.embeddings %>% as.data.frame() %>% column_to_rownames("Species") %>% as.matrix()
+subs.loadings <- subs.loadings %>% as.data.frame() %>% column_to_rownames("Subs") %>% as.matrix()
+repr <- t(species.embeddings %*% t(subs.loadings))
+repr1 <- scale(repr, center = -1 * pcs$center, scale = FALSE)
+repr1 <- as.data.frame(t(repr1))
+barplot(
+    c(
+        mean(repr1$AT), mean(repr1$AG), mean(repr1$AC),
+        mean(repr1$TA), mean(repr1$TG), mean(repr1$TC),
+        mean(repr1$CA), mean(repr1$CG), mean(repr1$CT),
+        mean(repr1$GA), mean(repr1$GC), mean(repr1$GT)),
+    names = c('AT', 'AG', 'AC',
+              'TA', 'TG', 'TC',
+              'CA', 'CG', 'CT',
+              'GA', 'GC', 'GT'),
+    main = "Reproduce original matrix"
+)
 
 ### IF I WANT TO DECREASE DIMENSIONALITY OF MY DATASET, I TRUNCATE IT, USING ONLY THE MOST IMPORTANT PCs:
-pc.use <- 3 
-trunc <- PCA$x[, 1:pc.use] %*% t(PCA$rotation[, 1:pc.use]) # trunc <- res$x[, 1:pc.use] %*% t(res$rotation[, 1:pc.use])
+pc.use <- 3
+trunc <- t((as.matrix(species.embeddings[, 1:pc.use])) %*% t(as.matrix(subs.loadings[, 1:pc.use])))
 
 # add the center (and re-scale) back to data
-PCA$scale
-trunc <- scale(trunc, center = FALSE, scale=1/PCA$scale)
-PCA$center
-trunc <- scale(trunc, center = -1 * PCA$center, scale = FALSE)
+trunc <- scale(trunc, center = -1 * pcs$center, scale = FALSE)
+trunc <- as.data.frame(t(trunc))
 
-### NOW - OPPOSITE EXERCISE: I WANT TO USE ONLY 4-12 PCs to reconstruct signature of gamma polymeraze:
+barplot(
+    c(
+        mean(trunc$AT), mean(trunc$AG), mean(trunc$AC),
+        mean(trunc$TA), mean(trunc$TG), mean(trunc$TC),
+        mean(trunc$CA), mean(trunc$CG), mean(trunc$CT),
+        mean(trunc$GA), mean(trunc$GC), mean(trunc$GT)),
+    names = c('AT', 'AG', 'AC',
+              'TA', 'TG', 'TC',
+              'CA', 'CG', 'CT',
+              'GA', 'GC', 'GT'),
+    main = "Matrix produced by PC1:PC3"
+)
+
+
+### NOW - OPPOSITE EXERCISE: I WANT TO USE ONLY 4-10 PCs to reconstruct signature of gamma polymeraze:
 start = 4
-end = 12
-gamma <- PCA$x[, start:end] %*% t(PCA$rotation[, start:end]) 
-gamma <- scale(gamma, center = FALSE , scale=1/PCA$scale)
-gamma <- scale(gamma, center = -1 * PCA$center, scale=FALSE)
-gamma = as.data.frame(gamma)
+end = 10
+gamma <- t(species.embeddings[, start:end] %*% t(subs.loadings[, start:end]))
+gamma <- scale(gamma, center = -1 * pcs$center, scale = FALSE)
+gamma <- as.data.frame(t(gamma))
 
 barplot(
     c(
@@ -382,119 +443,27 @@ barplot(
     names = c('AT', 'AG', 'AC',
               'TA', 'TG', 'TC',
               'CA', 'CG', 'CT',
-              'GA', 'GC', 'GT')
+              'GA', 'GC', 'GT'),
+    main = "Matrix produced by PC4:PC10"
     )
 
-###### doesn't work!!! scaling and centering ...
-### try without scaling:
-par(mfrow = c(2, 1))
-PcaNoScale = prcomp(matrix, center = FALSE, scale. = FALSE) # !!! or scale above!! discuss - it seems identical things
-start = 1
-end = 3
-gamma <-
-    PcaNoScale$x[, start:end] %*% t(PcaNoScale$rotation[, start:end])
-#gamma <- scale(gamma, center = FALSE , scale=1/PCA$scale)
-#gamma <- scale(gamma, center = -1 * PCA$center, scale=FALSE)
-gamma = as.data.frame(gamma)
-barplot(
-    c(
-        mean(gamma$AT), mean(gamma$AG), mean(gamma$AC),
-        mean(gamma$TA), mean(gamma$TG), mean(gamma$TC),
-        mean(gamma$CA), mean(gamma$CG), mean(gamma$CT),
-        mean(gamma$GA), mean(gamma$GC), mean(gamma$GT)),
-    names = c(
-        'AT', 'AG', 'AC',
-        'TA', 'TG', 'TC',
-        'CA', 'CG', 'CT',
-        'GA', 'GC', 'GT'),
-    main = 'EXO'
-)
-
-start = 4
-end = 10
-gamma <-
-    PcaNoScale$x[, start:end] %*% t(PcaNoScale$rotation[, start:end])
-#gamma <- scale(gamma, center = FALSE , scale=1/PCA$scale)
-#gamma <- scale(gamma, center = -1 * PCA$center, scale=FALSE)
-gamma = as.data.frame(gamma)
-barplot(
-    c(
-        mean(gamma$AT), mean(gamma$AG), mean(gamma$AC),
-        mean(gamma$TA), mean(gamma$TG), mean(gamma$TC),
-        mean(gamma$CA), mean(gamma$CG), mean(gamma$CT),
-        mean(gamma$GA), mean(gamma$GC), mean(gamma$GT)),
-    names = c(
-        'AT', 'AG', 'AC',
-        'TA', 'TG', 'TC',
-        'CA', 'CG', 'CT',
-        'GA', 'GC', 'GT'),
-    main = 'ENDO'
-)
-
-MatrixNoScale = data.frame(matrix)
-MatrixNoScale$Species = row.names(MatrixNoScale)
-PcaNoScaleDataFrame = data.frame(PcaNoScale$x)
-PcaNoScaleDataFrame$Species = row.names(PcaNoScaleDataFrame)
-NoScale = merge(MatrixNoScale, PcaNoScaleDataFrame)
-
-#### NAIVE CHECKS BELOW - don't work!!! don't understand!!
-A = lm(AT ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$ATRes = residuals(A)
-
-A = lm(AG ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$AGRes = residuals(A)
-
-A = lm(AC ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$ACRes = residuals(A)
-
-A = lm(TA ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$TARes = residuals(A)
-
-A = lm(TG ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$TGRes = residuals(A)
-
-A = lm(TC ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$TCRes = residuals(A)
-
-A = lm(CG ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$CGRes = residuals(A)
-
-A = lm(CT ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$CTRes = residuals(A)
-
-A = lm(CA ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$CARes = residuals(A)
-
-A = lm(GT ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$GTRes = residuals(A)
-
-A = lm(GC ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$GCRes = residuals(A)
-
-A = lm(GA ~ PC1 + PC2 + PC3, data = NoScale)
-summary(A)
-NoScale$GARes = residuals(A)
+#### NAIVE CHECKS BELOW - work well
+#### Here you shoud use predict.
+NaivChk <- 
+    TABLE %>% 
+    select(AC:TG) %>% 
+    map(~ lm(.x ~ PC1 + PC2 + PC3, data = TABLE)) %>% 
+    map_dfc(predict)
 
 barplot(
     c(
-        mean(NoScale$ATRes), mean(NoScale$AGRes), mean(NoScale$ACRes),
-        mean(NoScale$TARes), mean(NoScale$TGRes), mean(NoScale$TCRes),
-        mean(NoScale$CARes), mean(NoScale$CGRes), mean(NoScale$CTRes),
-        mean(NoScale$GARes), mean(NoScale$GCRes), mean(NoScale$GTRes)),
-    names = c(
-        'AT', 'AG', 'AC',
-        'TA', 'TG', 'TC',
-        'CA', 'CG', 'CT',
-        'GA', 'GC', 'GT')
+        mean(NaivChk$AT), mean(NaivChk$AG), mean(NaivChk$AC),
+        mean(NaivChk$TA), mean(NaivChk$TG), mean(NaivChk$TC),
+        mean(NaivChk$CA), mean(NaivChk$CG), mean(NaivChk$CT),
+        mean(NaivChk$GA), mean(NaivChk$GC), mean(NaivChk$GT)),
+    names = c('AT', 'AG', 'AC',
+              'TA', 'TG', 'TC',
+              'CA', 'CG', 'CT',
+              'GA', 'GC', 'GT'),
+    main = "NAIVE CHECKS"
 )
