@@ -12,6 +12,11 @@ calculatePcaReduction <- function(
     maxit = 100,
     weight.by.var = TRUE,
     seed.use = 42,
+    n.permut = 10,
+    numb.comp = 1,
+    n.sampl = 10,
+    jack = FALSE
+    plot = FALSE,
     ...
 ) {
     if (!is.null(seed.use)) {
@@ -66,6 +71,17 @@ calculatePcaReduction <- function(
                     ...
                 )
         }
+        if (plot) {
+            PA     <- jackstraw::permutationPA(as(tdata.use, "matrix"), 
+                                               B = n.permut, 
+                                               threshold = 0.05, 
+                                               seed = seed.use)
+        }
+        if (jack) {
+            js.pca <- jackstraw::jackstraw(as(tdata.use, "matrix"), r = numb.comp, 
+                                           method = "PCA", s = n.sampl,
+                                           B = n.permut * 100, verbose = FALSE)
+        }
         sdev <<- pcs$d / sqrt(max(1, nrow(data.use) - 1))
         if (weight.by.var) {
             subs.loadings <- pcs$v %*% diag(pcs$d)
@@ -109,6 +125,18 @@ calculatePcaReduction <- function(
                     ...
                 )
         }
+        if (plot) {
+            PA     <- jackstraw::permutationPA(as(data.use, "matrix"), 
+                                           B = n.permut, 
+                                           threshold = 0.05, 
+                                           seed = seed.use)
+        }
+        if (jack) {
+            js.pca <- jackstraw::jackstraw(as(data.use, "matrix"), r = numb.comp, 
+                               method = "PCA", s = n.sampl,
+                               B = n.permut * 100, verbose = FALSE)
+        }
+        
         # adjust for centering!
         if (center) {
             pcs$center <- cm
@@ -125,13 +153,23 @@ calculatePcaReduction <- function(
         }
     }
     pcs <<- pcs
-    
+    if (plot) {
+        par(mfrow = c(2, 1))
+        plot(pcs$d^2/sum(pcs$d^2), pch = 20, main = "The scree plot",
+             xlab = "PC", ylab = "Percent Variance Explained")
+        plot(PA$p, pch = 20, main = "Permutation Parallel Analysis P-values",
+             ylab = "P-values", xlab = "Principal Component")
+    }
     rownames(x = subs.loadings) <- rownames(x = data.use)
     colnames(x = subs.loadings) <- paste0(reduction.key, 1:nPcs)
     rownames(x = species.embeddings) <- colnames(x = data.use)
     colnames(x = species.embeddings) <- colnames(x = subs.loadings)
     subs.loadings <<- subs.loadings <- as.data.frame(subs.loadings) %>% rownames_to_column("Subs")
     species.embeddings <<- species.embeddings <- as.data.frame(species.embeddings) %>% rownames_to_column("Species")
+    
+    if (jack) {
+        js.pca <<- js.pca
+    }
     
     if (reduction.name == 'ICA' && rev.pca == FALSE) {
         pcas <- subs.loadings %>% select(-Species) %>% as.matrix()

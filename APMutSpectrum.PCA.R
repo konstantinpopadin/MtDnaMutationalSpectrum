@@ -11,6 +11,7 @@ rm(list = ls(all.names = TRUE))
 
 # For PCA analysis:
 library("irlba")
+library("jackstraw")  # check significant PCs
 # library("logisticPCA")  # May be used to explore presence/absence some type of subst. I've add it in case of our zeros-completion of NA.
 # For data-wrangling:
 library("tidyverse")
