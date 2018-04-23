@@ -15,7 +15,7 @@ calculatePcaReduction <- function(
     n.permut = 10,
     numb.comp = 1,
     n.sampl = 10,
-    jack = FALSE
+    jack = FALSE,
     plot = FALSE,
     ...
 ) {
