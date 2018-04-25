@@ -172,7 +172,7 @@ calculatePcaReduction <- function(
     }
     
     if (reduction.name == 'ICA' && rev.pca == FALSE) {
-        pcas <- subs.loadings %>% select(-Species) %>% as.matrix()
+        pcas <- subs.loadings %>% select(-Subs) %>% as.matrix()
         nIcs <- nPcs
         library(fastICA)
         a <-
