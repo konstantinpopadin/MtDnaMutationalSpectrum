@@ -116,6 +116,48 @@ cor.test(SynNucGT[SynNucGT$Gene == 'CytB',]$FrC,SynNucGT[SynNucGT$Gene == 'CytB'
 plot()
 
 
+################################
+################## COMPARE CLASSES
+################################
+
+rm(list=ls(all=TRUE))
+
+############ Syn mut
+SynNuc = read.table('/media/konstantinpopadin/ac45df81-e084-4d30-9653-5c57cc9b58fd/konstantinpopadin/SCIENCE_PROJECTS_BODY/MITOCHONDRIA/MutSpectrum/1_RAW/GcAtSkewNucCont.csv', header = TRUE)
+nrow(SynNuc)
+
+table(SynNuc$Gene) # why ND5 and ND2 are almost absent???? 
+SynNuc = SynNuc[SynNuc$Gene != 'ND2',]
+SynNuc = SynNuc[SynNuc$Gene != 'ND5',]
+
+### derive fractions
+SynNuc$FrA = SynNuc$A / SynNuc$SitesNumber
+SynNuc$FrT = SynNuc$T / SynNuc$SitesNumber
+SynNuc$FrG = SynNuc$G / SynNuc$SitesNumber
+SynNuc$FrC = SynNuc$C / SynNuc$SitesNumber
+
+### Classes from AnAGe
+AnAge = read.table('/media/konstantinpopadin/ac45df81-e084-4d30-9653-5c57cc9b58fd/konstantinpopadin/SCIENCE_PROJECTS_BODY/MITOCHONDRIA/MutSpectrum/1_RAW/anage_data.txt', quote = '', sep = '\t',header = TRUE)
+AnAge$Species = paste(AnAge$Genus,AnAge$Species, sep = '_')
+AnAge = AnAge[,grepl("Species|Class", names(AnAge))]
+AnAge = unique(AnAge)
+
+### merge
+SynNuc = merge(SynNuc,AnAge)
+table(SynNuc$Class)
+# Actinopterygii           Amphibia               Aves Cephalaspidomorphi     Chondrichthyes           Mammalia           Reptilia      Sarcopterygii 
+#  2408                361               2093                 58                407               5406               1097                 44 
+
+## question: cold-blooded versus warmblooded: G>A
+
+par(mfrow=c(2,2))
+boxplot(SynNuc[SynNuc$Class == 'Actinopterygii',]$FrA,SynNuc[SynNuc$Class == 'Amphibia',]$FrA,SynNuc[SynNuc$Class == 'Reptilia',]$FrA,SynNuc[SynNuc$Class == 'Mammalia',]$FrA,SynNuc[SynNuc$Class == 'Aves',]$FrA, notch = TRUE, ylab = 'FrA', names=c('act','amph','rep','mam','birds'))
+boxplot(SynNuc[SynNuc$Class == 'Actinopterygii',]$FrT,SynNuc[SynNuc$Class == 'Amphibia',]$FrT,SynNuc[SynNuc$Class == 'Reptilia',]$FrT,SynNuc[SynNuc$Class == 'Mammalia',]$FrT,SynNuc[SynNuc$Class == 'Aves',]$FrT, notch = TRUE, ylab = 'FrT', names=c('act','amph','rep','mam','birds'))
+boxplot(SynNuc[SynNuc$Class == 'Actinopterygii',]$FrG,SynNuc[SynNuc$Class == 'Amphibia',]$FrG,SynNuc[SynNuc$Class == 'Reptilia',]$FrG,SynNuc[SynNuc$Class == 'Mammalia',]$FrG,SynNuc[SynNuc$Class == 'Aves',]$FrG, notch = TRUE, ylab = 'FrG', names=c('act','amph','rep','mam','birds'))
+boxplot(SynNuc[SynNuc$Class == 'Actinopterygii',]$FrC,SynNuc[SynNuc$Class == 'Amphibia',]$FrC,SynNuc[SynNuc$Class == 'Reptilia',]$FrC,SynNuc[SynNuc$Class == 'Mammalia',]$FrC,SynNuc[SynNuc$Class == 'Aves',]$FrC, notch = TRUE, ylab = 'FrC', names=c('act','amph','rep','mam','birds'))
+
+
+
 
 
 
