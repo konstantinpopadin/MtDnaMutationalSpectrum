@@ -18,7 +18,7 @@ SynNuc$FrC = SynNuc$C / SynNuc$SitesNumber
 VecOfTaxa = unique(SynNuc$TAXON)
 SynNucAll = SynNuc
 
-pdf("./Body/4_Figures/SegmentsATGC.pdf", height = 10, width = 15)
+pdf("./Body/4_Figures/APMutSpectrum.SynSites.AtgcAlongGenomes.R.01.pdf", height = 10, width = 15)
 par(mfrow = c(2,1))
 
 for (taxa in 1:length(VecOfTaxa))
@@ -84,9 +84,3 @@ for (taxa in 1:length(VecOfTaxa))
 dev.off()
 
 #### 
-
-
-
-
-
-
