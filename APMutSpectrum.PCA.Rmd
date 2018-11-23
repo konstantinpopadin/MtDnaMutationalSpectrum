@@ -1,0 +1,486 @@
+---
+title: "MtMutSpectre"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load}
+# For PCA analysis:
+library("irlba")
+library("jackstraw")  # check significant PCs
+# library("logisticPCA")  # May be used to explore presence/absence some type of subst. I've add it in case of our zeros-completion of NA.
+# For data-wrangling:
+library("tidyverse")
+library("broom")
+# For ploting:
+library("gplots")
+library("factoextra")
+library("corrplot")
+library("cowplot")
+library("ggrepel")
+
+source("./funDimReduction.R")
+```
+
+```{r}
+METHOD <- 'MAXLIKELIHOOD'
+
+options(stringsAsFactors = FALSE)
+if (METHOD == 'MAXLIKELIHOOD') {MUT <- read_table2('2_Derived/Table_fixed.txt')}
+nrow(MUT)  # 506179
+length(unique(MUT$Species))  # 2404
+```
+
+```{r FILTER_normal_substitutions}
+VecOfNormalSubstitutions <- c('A_C','C_A',
+                              'A_G','G_A',
+                              'C_G','G_C',
+                              'C_T','T_C',
+                              'G_T','T_G',
+                              'T_A','A_T')
+nrow(MUT)  # 158771
+```
+
+```{r}
+MUT %>% count(Species, sort = TRUE) -> cs
+hist(cs$n, breaks = 50)
+```
+
+```{r}
+MUT2 <- MUT %>% 
+    mutate(NormS = Subs %in% VecOfNormalSubstitutions) %>%
+    group_by(Species) %>% 
+    summarise(prop_of_normal = mean(NormS))
+MUT2
+hist(MUT2$prop_of_normal, breaks = 100)
+```
+
+```{r}
+cs2 <- filter(MUT2, prop_of_normal < .9) %>% inner_join(cs)
+hist(cs2$n)
+```
+
+```{r}
+qplot(x = cs2$prop_of_normal, y = cs2$n)
+knitr::kable(arrange(cs2, prop_of_normal), "pandoc")  # to see table of 81 species
+```
+
+```{r}
+MUT2 <- filter(MUT2, prop_of_normal >= .9)
+hist(MUT2$prop_of_normal)
+```
+
+```{r}
+MUT <- MUT %>% filter(Subs %in% VecOfNormalSubstitutions, Species %in% MUT2$Species)
+rm(cs, cs2, MUT2)
+nrow(MUT)
+```
+
+```{r FILTER_Synonymous_Substitutions}
+MUT <- MUT %>% filter(AncestralAA == DescendantAA)
+nrow(MUT)  # old = 132477 new = 121203
+```
+
+```{r FILTER_fourfold_degenerate_sites}
+VecOfSynFourFoldDegenerateSites <- c('CTT', 'CTC', 'CTA', 'CTG', 
+                                     'GTT', 'GTC', 'GTA', 'GTG', 
+                                     'TCT', 'TCC', 'TCA', 'TCG', 
+                                     'CCT', 'CCC', 'CCA', 'CCG', 
+                                     'ACT', 'ACC', 'ACA', 'ACG', 
+                                     'GCT', 'GCC', 'GCA', 'GCG', 
+                                     'CGT', 'CGC', 'CGA', 'CGG', 
+                                     'GGT', 'GGC', 'GGA', 'GGG')
+length(unique(VecOfSynFourFoldDegenerateSites)) # 32
+MUT <- MUT %>% filter(AncestorCodon   %in% VecOfSynFourFoldDegenerateSites,
+                      DescendantCodon %in% VecOfSynFourFoldDegenerateSites)
+nrow(MUT)  # old = 62635 new = 57367
+```
+
+```{r FILTER_Gene_CytB}
+table(MUT$Gene)
+MUT <- MUT %>% filter(Gene == "CytB")
+nrow(MUT)  # 36517
+```
+
+```{r FILTER_species_with_many_substitutions}
+MUT %>% count(Species, sort = TRUE) -> cs
+hist(cs$n)
+summary(cs$n)
+# now quantile .15 = 13  and .25 = 21  substitutions
+# so  quantile .15 = 433 and .25 = 383 species
+quantile(cs$n, .15)
+quantile(cs$n, .25)
+ListOfSpeciesWithManySubst <- 
+    filter(cs, n >= quantile(n, .15)) %>% 
+    select(Species) %>% 
+    as_vector()
+MUT <- MUT %>% filter(Species %in% ListOfSpeciesWithManySubst)
+rm(ListOfSpeciesWithManySubst)
+nrow(MUT)  # 36517
+```
+
+## DERIVE MUTATIONAL SPECTRUM
+
+### NORMALIZATION of the 'NumberOfSynMutPerSpecies' by ancestral nucleotide count in the third position of four-fold synonymous substitutions:
+```{r}
+NUC <- 
+    read_table2('2_Derived/ATGC_counts_in_SYN_codons_wit_full_gene.txt') %>% 
+    separate(Species, into = c("Species", "Gene"), sep = "[.]") %>% 
+    gather(`CountA_Syn`, 
+           `CountC_Syn`, 
+           `CountG_Syn`, 
+           `CountT_Syn`, 
+           key = "Nucleotide", value = "Count_Syn") %>% 
+    mutate(AncestralNuc = str_sub(Nucleotide, 6, 6)) %>%
+    select(Species, Gene, AncestralNuc, Count_Syn)  # in case normalisation for synonymus it's better to shape long table
+```
+
+```{r}
+MUT %>% mutate(AncestralNuc = str_extract(Subs, "^.")) -> MUT
+glimpse(MUT)
+
+MUT <- inner_join(MUT, NUC,  by = c("Species", "Gene", "AncestralNuc"))
+nrow(MUT)  # 36517
+```
+
+### Same normalisation for Syn_subst
+```{r}
+mod_fun <- function(df){
+    df %>% count(Count_Syn, sort = TRUE) -> cs
+    syn <- unique(df$Count_Syn)
+    cs$n / syn
+}
+
+nMUT <- 
+    MUT %>% 
+    group_by(AncestralNuc, Species) %>% 
+    nest() %>% 
+    mutate(Normalise = map_dbl(data, mod_fun)) %>% 
+    group_by(Species) %>% 
+    mutate(TotalMutRate = sum(Normalise)) %>% 
+    unnest() %>% 
+    group_by(Species, Subs) %>% 
+    nest() %>% 
+    mutate(MutTypeRate = map_dbl(data, mod_fun)) %>% 
+    unnest() %>% 
+    mutate(Fraction = MutTypeRate / TotalMutRate)
+```
+
+Complete matrix by zeros
+```{r}
+cMUT <- 
+    complete(nMUT, Species, Subs) %>% 
+    replace_na(list(MutTypeRate = 0, Fraction = 0))
+```
+
+```{r fig.height=8, fig.width=10}
+sMUT <- 
+    select(cMUT, Species, Subs, Fraction) %>% 
+    distinct()
+p_subs <- ggplot(sMUT) + geom_histogram(aes(Fraction)) + facet_wrap("Subs", ncol = 3)
+p_subs
+
+p_subs2 <- ggplot(sMUT) + geom_freqpoly(aes(Fraction, colour = Subs, alpha = .3))
+p_subs2
+```
+
+### create matrix for PCA
+```{r}
+TABLE <- 
+    sMUT %>% 
+    spread(Subs, Fraction) %>% 
+    rename("AC" = "A_C", "AG" = "A_G", "AT" = "A_T", 
+           "CA" = "C_A", "CG" = "C_G", "CT" = "C_T", 
+           "GA" = "G_A", "GC" = "G_C", "GT" = "G_T", 
+           "TA" = "T_A", "TC" = "T_C", "TG" = "T_G")
+TABLE %>% as.data.frame() %>% column_to_rownames("Species") -> mtx
+psych::describe(mtx)
+```
+
+### Check correspondence (contingency tables and chi-squre test)
+```{r}
+# Check correspondence (contingency tables and chi-squre test)
+# it's too large for nice visualisation,
+# but at least you can use vcd::assoc() on subset
+# cntgTable <- as.table(as.matrix(mtx))
+# balloonplot(t(cntgTable), main = "Substitutions",
+#             xlab = "", ylab = "", label = FALSE, 
+#             show.margins = FALSE)
+# mosaicplot(mtx, shade = TRUE, las = 2, main = "Substitutions")
+# vcd::assoc(head(cntgTable, 10), shade = TRUE, las = 3)
+chisq <- chisq.test(mtx, simulate.p.value = TRUE, B = 1e4)
+tidy(chisq)  # not significant
+```
+
+#### Contribution in percentage (%) of cell to Chi-square score:
+```{r Contribution}
+contrib <- 100 * (chisq$residuals^2 / chisq$statistic)
+for (i in seq_along(colnames(contrib))) {
+    hist(contrib[, i], main = colnames(contrib)[i], breaks = 50)
+}  # here we see group of strangers on GA hist with large conribution
+```
+
+## PCA
+```{r}
+ICA <- calculatePcaReduction(data.use = TABLE, nPcs = 10, center = TRUE, weight.by.var = FALSE, rev.pca = FALSE, seed.use = 42, reduction.name = "ICA")
+TABLE <- calculatePcaReduction(data.use = TABLE, nPcs = 10, center = TRUE, weight.by.var = FALSE, rev.pca = FALSE, seed.use = 42)
+```
+#### PCA plot of Substitutions' loading
+```{r Plot_subs_PCA, fig.width=14, fig.asp=0.618}
+p_subs3 <- ggplot(as.data.frame(subs.loadings), aes(x = PC1, y = PC2, color = Subs)) +
+    geom_text(aes(label = Subs)) +
+    xlab("PC1") +
+    ylab("PC2") 
+p_subs4 <- ggplot(as.data.frame(subs.loadings), aes(x = PC3, y = PC4, color = Subs)) +
+    geom_text(aes(label = Subs)) +
+    xlab("PC3") +
+    ylab("PC4") 
+pSubs <- plot_grid(p_subs, p_subs2, p_subs3, p_subs4, 
+                   align = 'v', labels = LETTERS[1:4], 
+                   scale = c(c(1, 1), c(1, 1), c(1, 1), c(1, 1)), 
+                   hjust = -1, ncol = 2, axis = 't', rel_heights = c(1, 1.3))
+pSubs
+if (!dir.exists("./4_Figures")) {
+    dir.create("./4_Figures")
+}
+save_plot("./4_Figures/Substitutions_PCA_full.pdf", pSubs, base_height = 11, base_aspect_ratio = 1.1)
+```
+#### ICA plot of Substitutions' loading
+```{r Plot_subs_PCA_ICA, fig.width=14, fig.asp=0.618}
+ICA.tab <- as.data.frame(ICA) %>% rownames_to_column("Subs")
+p_subs5 <- ggplot(as.data.frame(ICA.tab), aes(x = IC1, y = IC2, color = Subs)) +
+    geom_text(aes(label = Subs)) +
+    xlab("IC1") +
+    ylab("IC2") 
+p_subs6 <- ggplot(as.data.frame(ICA.tab), aes(x = IC3, y = IC4, color = Subs)) +
+    geom_text(aes(label = Subs)) +
+    xlab("IC3") +
+    ylab("IC4") 
+pSubs_MVA <- plot_grid(p_subs3, p_subs4, p_subs5, p_subs6, 
+                   align = 'v', labels = LETTERS[1:4], 
+                   scale = c(c(1, 1), c(1, 1), c(1, 1), c(1, 1)), 
+                   hjust = -1, ncol = 2, axis = 't', rel_heights = c(1, 1.3))
+pSubs_MVA
+if (!dir.exists("./4_Figures")) {
+    dir.create("./4_Figures")
+}
+save_plot("./4_Figures/Substitutions_PCA_ICA_full.pdf", pSubs_MVA, base_height = 11, base_aspect_ratio = 1.1)
+```
+
+### EXTREMES
+```{r EXTREMES}
+TABLE %>% filter(PC1 < quantile(PC1, .05)) %>% select(Species)
+TABLE %>% filter(PC1 > quantile(PC1, .95)) %>% select(Species)
+TABLE %>% filter(PC2 < quantile(PC2, .05)) %>% select(Species)
+TABLE %>% filter(PC2 > quantile(PC2, .95)) %>% select(Species)
+TABLE %>% filter(PC3 < quantile(PC3, .05)) %>% select(Species)
+TABLE %>% filter(PC3 > quantile(PC3, .95)) %>% select(Species)
+```
+
+### GENERATION LENGTH and PCA
+```{r}
+GenerTime <- read_tsv('1_Raw/GenerationLenghtforMammals.xlsx.txt', 
+                      na = c("", "NA", "no information")) %>% 
+    mutate(Species = str_replace(Scientific_name, " ", "_")) %>% 
+    select(-starts_with("Sources"), -Genus, -Scientific_name, -Data_AFR)
+
+AnAge = read_tsv('1_Raw/anage_data.tsv')
+Test <- left_join(TABLE, GenerTime) %>% left_join(AnAge) %>% type_convert()
+
+Var1 <- list(Test %>% select(PC1:PC10) %>% colnames())
+Var2 <- list(Test %>% select(AdultBodyMass_g:GenerationLength_d, 
+                             Female.maturity..days.:Maximum.longevity..yrs., 
+                             Metabolic.rate..W.:Temperature..K.) %>% colnames())
+
+list_Tests <- cross2(Var1[[1]], Var2[[1]])
+
+corrtest <- function(v) {
+    fun <- function(x, y) cor.test(x, y, method = 'spearman')
+    vars <- select(Test, v[[1]], v[[2]]) %>% type_convert()
+    res <- with(Test, fun(vars[, 1], vars[, 2]))
+    result <- data.frame(Var1 = v[[1]], Var2 = v[[2]])
+    result <- cbind(result, tidy(res))
+}
+
+Tests_results <- list_Tests %>% map_df(~ corrtest(.))
+
+knitr::kable(Tests_results, "pandoc")
+```
+
+Filtred table:
+```{r}
+cl_results <- Tests_results %>% filter(p.value < .005)
+knitr::kable(cl_results, "pandoc", caption = "TABLE OF SIGNIFICANT CORRELATIONS BETWEEN PCS AND ECOLOGY")
+if (!dir.exists("./3_Results")) {
+    dir.create("./3_Results")
+}
+pdf("./3_Results/Significant_PCs_Correlations_full.pdf", height = 4, width = 12)
+gridExtra::grid.table(cl_results)
+dev.off()
+```
+
+### HETEROTERMS
+```{r}
+Hib = read_csv('1_Raw/tornew5.csv')
+Hib$Species = gsub(" ", '_', Hib$Species)
+HibOnlySpecies = Hib[Hib$Type == 'HIB', ]$Species; length(HibOnlySpecies)
+DtOnlySpecies = Hib[Hib$Type == 'DT', ]$Species; length(DtOnlySpecies)
+Tab1 <- Hib %>% select(Species, Taxon, Type:Boutmean, lat:prec) %>% right_join(Test)
+ggplot(Tab1, aes(Type, PC1)) + geom_boxplot()
+```
+
+### MARSUPIALS, BATS... AGAIN NEED NORMAL TAXONOMY !!!!!!!!
+```{r}
+Tax <- select(Hib, Taxon, Order) %>% distinct() %>% filter(Taxon != "Mar") %>% mutate(Order = str_to_title(Order))
+Tab1 <- left_join(Test, Tax)
+Tab1 %>% filter(is.na(Taxon)) %>% janitor::tabyl(Order)
+
+Marsupials <- c("Didelphimorphia")
+Placental <- c("Artiodactyla", "Cetacea", "Cingulata", "Erinaceomorpha", "Lagomorpha", "Perissodactyla", "Pilosa", "Proboscidea", "Scandentia", "Soricomorpha")
+
+Tab1 %>% mutate(Taxon = ifelse(is.na(Taxon), ifelse(Order %in% Placental, "Plac", "Mars"), Taxon)) %>% janitor::tabyl(Order, Taxon)
+Tab1 <- Tab1 %>% mutate(Taxon = ifelse(is.na(Taxon), ifelse(Order %in% Placental, "Plac", "Mars"), Taxon))
+ggplot(Tab1, aes(Taxon, PC1)) + geom_boxplot()
+```
+
+```{r}
+Tab2 <- Tab1 %>% arrange(GenerationLength_d) %>% group_by(Taxon) %>% mutate(GL_grops = ntile(GenerationLength_d, 5))
+
+
+p_SpEmb1 <- ggplot(data = Tab2, aes(x = PC1, y = PC2, colour = GL_grops, alpha = .4)) + geom_point()
+p_SpEmb2 <- ggplot(data = Tab2, aes(x = PC2, y = PC3, colour = GL_grops, alpha = .4)) + geom_point()
+
+ggplot(data = Tab2, aes(x = PC2, y = GenerationLength_d, colour = GL_grops, alpha = .4, group = Taxon)) + geom_point() + geom_smooth(data = Tab2, mapping = aes(x = PC2, y = GenerationLength_d, linetype = Taxon)) + scale_y_log10()
+p_SpGL1 <- ggplot(data = Tab2, aes(x = PC2, y = GenerationLength_d, colour = GL_grops, alpha = .4)) + geom_point() + scale_y_log10(); cor.test(Tab2$PC2, Tab2$GenerationLength_d, method = 'spearman')
+p_SpGL2 <- ggplot(data = Tab2, aes(x = PC3, y = GenerationLength_d, colour = GL_grops, alpha = .4)) + geom_point() + scale_y_log10(); cor.test(Tab2$PC3, Tab2$GenerationLength_d, method = 'spearman') 
+
+pEco <- plot_grid(p_SpEmb1, p_SpEmb2, p_SpGL1, p_SpGL2, p_subs3, p_subs4, ncol = 2, nrow = 3)
+save_plot('4_Figures/Ecology_PCA_full.pdf', pEco, base_height = 14)
+```
+
+### FIND DNA POLYMERAZE SIGNATURE (last PCs)!!!!!
+```{r}
+p_SpEmb3 <- ggplot(data = Tab2, aes(x = PC3, y = PC4, colour = GL_grops, alpha = .4)) + geom_point()
+p_SpEmb4 <- ggplot(data = Tab2, aes(x = PC4, y = PC5, colour = GL_grops, alpha = .4)) + geom_point()
+p_SpEmb5 <- ggplot(data = Tab2, aes(x = PC5, y = PC6, colour = GL_grops, alpha = .4)) + geom_point()
+p_SpEmb6 <- ggplot(data = Tab2, aes(x = PC6, y = PC7, colour = GL_grops, alpha = .4)) + geom_point()
+p_SpEmb7 <- ggplot(data = Tab2, aes(x = PC7, y = PC8, colour = GL_grops, alpha = .4)) + geom_point()
+p_SpEmb8 <- ggplot(data = Tab2, aes(x = PC8, y = PC9, colour = GL_grops, alpha = .4)) + geom_point()
+
+pGamma <- plot_grid(p_SpEmb3, p_SpEmb4, p_SpEmb5, p_SpEmb6, p_SpEmb7, p_SpEmb8, ncol = 2, nrow = 3)
+save_plot('4_Figures/DnaPolymerazeSignature_PCA_full.pdf', pGamma, base_height = 7)
+```
+
+```{r}
+# Original matrix
+barplot(
+    c(
+        mean(mtx$AT), mean(mtx$AG), mean(mtx$AC),
+        mean(mtx$TA), mean(mtx$TG), mean(mtx$TC),
+        mean(mtx$CA), mean(mtx$CG), mean(mtx$CT),
+        mean(mtx$GA), mean(mtx$GC), mean(mtx$GT)),
+    names = c('AT', 'AG', 'AC',
+              'TA', 'TG', 'TC',
+              'CA', 'CG', 'CT',
+              'GA', 'GC', 'GT'),
+    main = "Original matrix"
+)
+
+# Reproduce original matrix of substitution
+species.embeddings <- species.embeddings %>% as.data.frame() %>% column_to_rownames("Species") %>% as.matrix()
+subs.loadings <- subs.loadings %>% as.data.frame() %>% column_to_rownames("Subs") %>% as.matrix()
+repr <- t(species.embeddings %*% t(subs.loadings))
+repr1 <- scale(repr, center = -1 * pcs$center, scale = FALSE)
+repr1 <- as.data.frame(t(repr1))
+barplot(
+    c(
+        mean(repr1$AT), mean(repr1$AG), mean(repr1$AC),
+        mean(repr1$TA), mean(repr1$TG), mean(repr1$TC),
+        mean(repr1$CA), mean(repr1$CG), mean(repr1$CT),
+        mean(repr1$GA), mean(repr1$GC), mean(repr1$GT)),
+    names = c('AT', 'AG', 'AC',
+              'TA', 'TG', 'TC',
+              'CA', 'CG', 'CT',
+              'GA', 'GC', 'GT'),
+    main = "Reproduce original matrix"
+)
+```
+
+
+```{r}
+### IF I WANT TO DECREASE DIMENSIONALITY OF MY DATASET, I TRUNCATE IT, USING ONLY THE MOST IMPORTANT PCs:
+pc.use <- 2
+trunc <- t((as.matrix(species.embeddings[, 1:pc.use])) %*% t(as.matrix(subs.loadings[, 1:pc.use])))
+
+# add the center (and re-scale) back to data
+trunc <- scale(trunc, center = -1 * pcs$center, scale = FALSE)
+trunc <- as.data.frame(t(trunc))
+
+barplot(
+    c(
+        mean(trunc$AT), mean(trunc$AG), mean(trunc$AC),
+        mean(trunc$TA), mean(trunc$TG), mean(trunc$TC),
+        mean(trunc$CA), mean(trunc$CG), mean(trunc$CT),
+        mean(trunc$GA), mean(trunc$GC), mean(trunc$GT)),
+    names = c('AT', 'AG', 'AC',
+              'TA', 'TG', 'TC',
+              'CA', 'CG', 'CT',
+              'GA', 'GC', 'GT'),
+    main = "Matrix produced by PC1:PC3"
+)
+trunc <- rownames_to_column(trunc, "Species")
+write_csv(trunc, "./3_Results/PCs1-2_Truncated_tab_full.csv")
+```
+
+```{r}
+### NOW - OPPOSITE EXERCISE: I WANT TO USE ONLY 4-10 PCs to reconstruct signature of gamma polymeraze:
+start = 3
+end = 10
+gamma <- t(species.embeddings[, start:end] %*% t(subs.loadings[, start:end]))
+gamma <- scale(gamma, center = -1 * pcs$center, scale = FALSE)
+gamma <- as.data.frame(t(gamma))
+
+barplot(
+    c(
+        mean(gamma$AT), mean(gamma$AG), mean(gamma$AC),
+        mean(gamma$TA), mean(gamma$TG), mean(gamma$TC),
+        mean(gamma$CA), mean(gamma$CG), mean(gamma$CT),
+        mean(gamma$GA), mean(gamma$GC), mean(gamma$GT)),
+    names = c('AT', 'AG', 'AC',
+              'TA', 'TG', 'TC',
+              'CA', 'CG', 'CT',
+              'GA', 'GC', 'GT'),
+    main = "Matrix produced by PC3:PC10"
+    )
+gamma <- rownames_to_column(gamma, "Species")
+write_csv(gamma, "./3_Results/DnaPolymerazeSignature_tab_full.csv")
+```
+
+
+```{r}
+#### NAIVE CHECKS BELOW - work well
+#### Here you shoud use predict.
+NaivChk <- 
+    TABLE %>% 
+    select(AC:TG) %>% 
+    map(~ lm(.x ~ PC1 + PC2, data = TABLE)) %>% 
+    map_dfc(predict)
+
+barplot(
+    c(
+        mean(NaivChk$AT), mean(NaivChk$AG), mean(NaivChk$AC),
+        mean(NaivChk$TA), mean(NaivChk$TG), mean(NaivChk$TC),
+        mean(NaivChk$CA), mean(NaivChk$CG), mean(NaivChk$CT),
+        mean(NaivChk$GA), mean(NaivChk$GC), mean(NaivChk$GT)),
+    names = c('AT', 'AG', 'AC',
+              'TA', 'TG', 'TC',
+              'CA', 'CG', 'CT',
+              'GA', 'GC', 'GT'),
+    main = "NAIVE CHECKS"
+)
+```
+
+
